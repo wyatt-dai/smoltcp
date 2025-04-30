@@ -47,6 +47,9 @@ use crate::socket::*;
 use crate::time::{Duration, Instant};
 
 use crate::wire::*;
+use core::task::Waker;
+use core::future::poll_fn;
+use core::task::Poll;
 
 macro_rules! check {
     ($e:expr) => {
@@ -752,6 +755,52 @@ impl Interface {
             }
         }
         result
+    }
+    pub async fn async_poll_egress(
+        &mut self,
+        timestamp: Instant,
+        device: &mut impl Device,
+        sockets: &mut SocketSet<'_>,
+    ) -> PollResult {
+        poll_fn(|cx| {
+            // 注册当前Waker到所有Socket的tx_waker
+            for (_, socket) in sockets.iter_mut() {  // ✅ 解构元组
+                if let Some(tcp_socket) = crate::socket::AnySocket::downcast_mut::<crate::socket::tcp::Socket>(socket) {
+                    #[cfg(feature = "async")]
+                    tcp_socket.register_s_waker(cx.waker());
+                }
+            }
+
+            // 检查是否有数据待发送
+            let has_data = true;
+
+            if has_data {
+                Poll::Ready(self.poll_egress(timestamp, device, sockets))
+            } else {
+                Poll::Pending
+            }
+        }).await
+    }
+
+    /// 异步处理接收队列（由设备驱动的Waker触发）
+    pub async fn async_poll_ingress(
+        &mut self,
+        timestamp: Instant,
+        device: &mut impl Device,
+        sockets: &mut SocketSet<'_>,
+    ) -> PollIngressSingleResult {
+        poll_fn(|cx| {
+            // 注册当前Waker到设备驱动的rx_waker
+            #[cfg(feature = "async")]
+            device.register_rx_waker(cx.waker());
+
+            // 直接调用同步poll_ingress_single
+            let result = self.poll_ingress_single(timestamp, device, sockets);
+            match result {
+                PollIngressSingleResult::None => Poll::Pending,
+                _ => Poll::Ready(result),
+            }
+        }).await
     }
 }
 
