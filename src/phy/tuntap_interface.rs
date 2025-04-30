@@ -6,6 +6,10 @@ use std::vec::Vec;
 
 use crate::phy::{self, sys, Device, DeviceCapabilities, Medium};
 use crate::time::Instant;
+use crate::wire::*;
+use core::task::Waker;
+use core::future::poll_fn;
+use core::task::Poll;
 
 /// A virtual TUN (IP) or TAP (Ethernet) interface.
 #[derive(Debug)]
@@ -13,6 +17,7 @@ pub struct TunTapInterface {
     lower: Rc<RefCell<sys::TunTapInterfaceDesc>>,
     mtu: usize,
     medium: Medium,
+    rx_waker: Waker,
 }
 
 impl AsRawFd for TunTapInterface {
@@ -34,6 +39,7 @@ impl TunTapInterface {
             lower: Rc::new(RefCell::new(lower)),
             mtu,
             medium,
+            rx_waker: None, // ✅ 新增：初始化为 None
         })
     }
 
@@ -47,8 +53,10 @@ impl TunTapInterface {
             lower: Rc::new(RefCell::new(lower)),
             mtu,
             medium,
+            rx_waker: None, // ✅ 新增：初始化为 None
         })
     }
+
 }
 
 impl Device for TunTapInterface {
@@ -69,10 +77,13 @@ impl Device for TunTapInterface {
         match lower.recv(&mut buffer[..]) {
             Ok(size) => {
                 buffer.resize(size, 0);
+                // ✅ 触发接收事件唤醒
+                self.rx_waker.wake(); 
                 let rx = RxToken { buffer };
                 let tx = TxToken {
                     lower: self.lower.clone(),
                 };
+                self.rx_waker.wake(); 
                 Some((rx, tx))
             }
             Err(err) if err.kind() == io::ErrorKind::WouldBlock => None,
@@ -85,6 +96,12 @@ impl Device for TunTapInterface {
             lower: self.lower.clone(),
         })
     }
+    // 注册接收Waker（由异步poll_ingress调用）
+    #[cfg(feature = "async")]
+    fn register_rx_waker(&mut self, waker: &Waker) {
+        self.rx_waker.register(waker);
+    }
+
 }
 
 #[doc(hidden)]
