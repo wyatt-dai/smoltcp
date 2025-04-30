@@ -492,6 +492,9 @@ pub struct Socket<'a> {
     rx_waker: WakerRegistration,
     #[cfg(feature = "async")]
     tx_waker: WakerRegistration,
+
+    #[cfg(feature = "async")]
+    s_waker: WakerRegistration,
 }
 
 const DEFAULT_MSS: usize = 536;
@@ -555,6 +558,8 @@ impl<'a> Socket<'a> {
             rx_waker: WakerRegistration::new(),
             #[cfg(feature = "async")]
             tx_waker: WakerRegistration::new(),
+            #[cfg(feature = "async")]
+            s_waker: WakerRegistration::new(),
         }
     }
 
@@ -629,10 +634,6 @@ impl<'a> Socket<'a> {
     /// - The Waker is woken only once. Once woken, you must register it again to receive more wakes.
     /// - "Spurious wakes" are allowed: a wake doesn't guarantee the result of `recv` has
     ///   necessarily changed.
-    #[cfg(feature = "async")]
-    pub fn register_recv_waker(&mut self, waker: &Waker) {
-        self.rx_waker.register(waker)
-    }
 
     /// Register a waker for send operations.
     ///
@@ -648,8 +649,8 @@ impl<'a> Socket<'a> {
     /// - "Spurious wakes" are allowed: a wake doesn't guarantee the result of `send` has
     ///   necessarily changed.
     #[cfg(feature = "async")]
-    pub fn register_send_waker(&mut self, waker: &Waker) {
-        self.tx_waker.register(waker)
+    pub fn register_s_waker(&mut self, waker: &Waker) {
+        self.s_waker.register(waker)
     }
 
     /// Return the timeout duration.
@@ -1181,8 +1182,16 @@ impl<'a> Socket<'a> {
                 old_length + size
             );
         }
+        self.tx_waker.wake();
         Ok(result)
     }
+
+    /// 注册发送 Waker
+    #[cfg(feature = "async")]
+    pub fn register_send_waker(&mut self, waker: &Waker) {
+        self.send_waker.register(waker);
+    }
+
 
     /// Call `f` with the largest contiguous slice of octets in the transmit buffer,
     /// and enqueue the amount of elements returned by `f`.
