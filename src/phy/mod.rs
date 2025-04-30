@@ -89,28 +89,27 @@ impl<'a> phy::TxToken for StmPhyTxToken<'a> {
 )]
 
 use crate::time::Instant;
-
+use crate::wire::*;
+use core::task::Waker;
+use core::future::poll_fn;
+use core::task::Poll;
 #[cfg(all(
     any(feature = "phy-raw_socket", feature = "phy-tuntap_interface"),
     unix
 ))]
 mod sys;
 
-mod fault_injector;
-#[cfg(feature = "alloc")]
-mod fuzz_injector;
-#[cfg(feature = "alloc")]
-mod loopback;
-mod pcap_writer;
-#[cfg(all(feature = "phy-raw_socket", unix))]
-mod raw_socket;
-mod tracer;
 #[cfg(all(
     feature = "phy-tuntap_interface",
     any(target_os = "linux", target_os = "android")
 ))]
 mod tuntap_interface;
-
+mod pcap_writer;
+mod fault_injector;
+mod fuzz_injector;
+mod loopback;
+mod raw_socket;
+mod tracer;
 #[cfg(all(
     any(feature = "phy-raw_socket", feature = "phy-tuntap_interface"),
     unix
@@ -364,6 +363,9 @@ pub trait Device {
 
     /// Get a description of device capabilities.
     fn capabilities(&self) -> DeviceCapabilities;
+    /// 注册接收事件的 Waker（异步特性需要）
+    #[cfg(feature = "async")]
+    fn register_rx_waker(&mut self, waker: &Waker);
 }
 
 /// A token to receive a single network packet.
